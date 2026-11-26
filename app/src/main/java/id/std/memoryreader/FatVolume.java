@@ -1,0 +1,31 @@
+package id.std.memoryreader;
+import java.io.*;
+final class FatVolume {
+ final UsbDisk disk; final long start,total,fat,data,clusters,rootSector,rootCluster; final int spc,bps,rootEntries; final boolean fat32;
+ static int u16(byte[] b,int p){return (b[p]&255)|((b[p+1]&255)<<8);}
+ static long u32(byte[] b,int p){return (long)u16(b,p)|((long)u16(b,p+2)<<16);}
+ static FatVolume discover(UsbDisk d)throws IOException{
+ byte[] b=d.read(0,1);try{return new FatVolume(d,0,d.blockCount(),b);}catch(InvalidVolume e){}
+ if(u16(b,510)!=0xaa55)throw new InvalidVolume("No valid boot sector or MBR");
+ for(int i=0;i<4;i++){int p=446+i*16;int type=b[p+4]&255;if(type!=4&&type!=6&&type!=14&&type!=11&&type!=12)continue;
+ long start=u32(b,p+8),len=u32(b,p+12);if(start==0||len==0||start>d.blockCount()-len)continue;
+ try{return new FatVolume(d,start,len,d.read(start,1));}catch(InvalidVolume e){}
+ }throw new InvalidVolume("No supported FAT16/FAT32 volume");
+ }
+ static final class InvalidVolume extends IOException{InvalidVolume(String s){super(s);}}
+ FatVolume(UsbDisk d,long start,long limit,byte[] b)throws IOException{
+ disk=d;this.start=start;bps=u16(b,11);spc=b[13]&255;int reserved=u16(b,14),copies=b[16]&255;rootEntries=u16(b,17);
+ long t=u16(b,19);total=t!=0?t:u32(b,32);long f=u16(b,22);long fs=f!=0?f:u32(b,36);
+ if(u16(b,510)!=0xaa55||bps!=d.blockSize()||spc==0||spc>128||(spc&(spc-1))!=0||reserved==0||copies<1||copies>2||fs==0||total==0||total>limit)throw new InvalidVolume("Invalid FAT geometry");
+ long rs=((long)rootEntries*32+bps-1)/bps;long overhead=reserved+copies*fs+rs;
+ if(overhead>=total)throw new InvalidVolume("Invalid data offset");
+ clusters=(total-overhead)/spc;fat32=clusters>=65525;
+ if(clusters<4085||clusters>=0x0ffffff5L||fat32!=(f==0)|| (fat32?rootEntries!=0:rootEntries==0))throw new InvalidVolume("Unsupported FAT type");
+ if(fs*bps/(fat32?4:2)<clusters+2)throw new InvalidVolume("FAT too small");
+ int flags=fat32?u16(b,40):0;int active=(flags&128)!=0?flags&15:0;if(active>=copies)throw new InvalidVolume("Invalid active FAT");
+ fat=start+reserved+active*fs;rootSector=start+reserved+copies*fs;data=start+overhead;rootCluster=fat32?u32(b,44):0;
+ if(fat32&&(rootCluster<2||rootCluster>=clusters+2))throw new InvalidVolume("Invalid root cluster");
+ }
+ long sectorOf(long c)throws IOException{if(c<2||c>=clusters+2)throw new InvalidVolume("Cluster outside volume");return data+(c-2)*spc;}
+ long next(long c)throws IOException{sectorOf(c);long off=c*(fat32?4:2);byte[] b=disk.read(fat+off/bps,1);int p=(int)(off%bps);long n=fat32?u32(b,p)&0x0fffffffL:u16(b,p);if(n>=(fat32?0x0ffffff8L:0xfff8L))return -1;if(n>=(fat32?0x0ffffff0L:0xfff0L))throw new InvalidVolume("Reserved or bad cluster");sectorOf(n);return n;}
+}
