@@ -28,4 +28,32 @@ final class ExFatVolume {
  if(name.length()!=chars)throw new IOException("Truncated name");long size=u64(set,56),valid=u64(set,40),cluster=u32(set,52);if(size<0||valid<0||valid>size)throw new IOException("Invalid file length");
  return new Entry(name.toString(),cluster,size,valid,(FatVolume.u16(set,4)&16)!=0,(set[33]&2)!=0);
  }
+
+ static ExFatVolume discover(UsbDisk d)throws IOException{
+ byte[] m=d.read(0,1);ArrayList<Long> starts=new ArrayList<>();starts.add(0L);
+ if(FatVolume.u16(m,510)==0xaa55)for(int i=0;i<4;i++){int p=446+i*16;long n=u32(m,p+8),len=u32(m,p+12);if((m[p+4]&255)!=0&&n>0&&len>0&&n<=d.blockCount()-len&&!starts.contains(n))starts.add(n);}
+ for(long n:starts){byte[] boot=n==0?m:d.read(n,1);if(new String(boot,3,8,StandardCharsets.US_ASCII).equals("EXFAT   "))return new ExFatVolume(d,n,boot);}
+ throw new FatVolume.InvalidVolume("exFAT tidak ditemukan");
+ }
+ interface Visitor{void accept(Entry e)throws IOException;}
+ static void check()throws IOException{if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Cancelled");}
+ void list(Entry directory,Visitor visitor)throws IOException{
+ long c=directory==null?root:directory.cluster, remaining=directory==null?Long.MAX_VALUE:directory.validSize;
+ boolean contiguous=directory!=null&&directory.contiguous;Set<Long> seen=new HashSet<>();ByteArrayOutputStream set=null;int pending=0,entries=0;
+ while(c!=-1&&remaining>=32){check();if(seen.size()>=16384||!seen.add(c))throw new IOException("Directory chain limit");long base=sector(c);
+ for(int i=0;i<spc&&remaining>=32;i++){check();byte[] data=disk.read(base+i,1);int limit=(int)Math.min(remaining,bps);
+ for(int p=0;p+32<=limit;p+=32){int type=data[p]&255;if(type==0)return;
+ if(pending>0){set.write(data,p,32);if(--pending==0){Entry e=parse(set.toByteArray());if(++entries>100000)throw new IOException("Directory entry limit");visitor.accept(e);set=null;}continue;}
+ if(type==0x85){pending=data[p+1]&255;if(pending<2||pending>18)throw new IOException("Invalid secondary count");set=new ByteArrayOutputStream();set.write(data,p,32);}
+ }remaining-=limit;}
+ if(remaining>=32)c=contiguous?c+1:next(c);
+ }if(pending!=0)throw new EOFException("Truncated directory entry");
+ }
+ void copy(Entry e,OutputStream out)throws IOException{
+ if(e.directory)throw new IOException("Not a file");long remaining=e.validSize,c=e.cluster;Set<Long> seen=new HashSet<>();
+ while(remaining>0){check();if(seen.size()>=1048576||!seen.add(c))throw new IOException("File chain limit");long base=sector(c);
+ for(int i=0;i<spc&&remaining>0;i++){check();byte[] data=disk.read(base+i,1);int n=(int)Math.min(remaining,bps);out.write(data,0,n);remaining-=n;}
+ if(remaining>0){c=e.contiguous?c+1:next(c);if(c==-1)throw new EOFException("Truncated file");}}
+ byte[] zeros=new byte[4096];for(long n=e.size-e.validSize;n>0;){check();int k=(int)Math.min(n,zeros.length);out.write(zeros,0,k);n-=k;}
+ }
 }
