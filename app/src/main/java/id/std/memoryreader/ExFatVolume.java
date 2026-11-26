@@ -58,7 +58,7 @@ final class ExFatVolume {
  void copy(Entry e,OutputStream out)throws IOException{
  validateEntry(e);if(e.directory)throw new IOException("Not a file");long remaining=e.validSize,c=e.cluster;Set<Long> seen=new HashSet<>();
  while(remaining>0){check();if(seen.size()>=1048576||!seen.add(c))throw new IOException("File chain limit");long base=sector(c);
- for(int i=0;i<spc&&remaining>0;i++){check();byte[] data=disk.read(base+i,1);int n=(int)Math.min(remaining,bps);out.write(data,0,n);remaining-=n;}
+ for(int i=0;i<spc&&remaining>0;){check();int blocks=(int)Math.min(Math.min(spc-i,16384/bps),1+(remaining-1)/bps);byte[] data=disk.read(base+i,blocks);int n=(int)Math.min(remaining,data.length);out.write(data,0,n);remaining-=n;i+=blocks;}
  if(remaining>0){c=e.contiguous?c+1:next(c);if(c==-1)throw new EOFException("Truncated file");}}
  byte[] zeros=new byte[4096];for(long n=e.size-e.validSize;n>0;){check();int k=(int)Math.min(n,zeros.length);out.write(zeros,0,k);n-=k;}
  }
