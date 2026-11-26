@@ -4,11 +4,17 @@ import java.io.*;
 import java.nio.*;
 final class UsbDisk implements Closeable {
  private final UsbDeviceConnection c; private final UsbInterface iface; private final UsbEndpoint in,out; private int tag=1; private long blocks; private int size; private boolean failed;
- UsbDisk(UsbManager m,UsbDevice d,UsbInterface f)throws IOException {
+ UsbDisk(android.content.Context context,UsbManager m,UsbDevice d,UsbInterface f)throws IOException {
  if(f.getInterfaceClass()!=8||f.getInterfaceSubclass()!=6||f.getInterfaceProtocol()!=80)throw new IOException("Unsupported protocol");
  UsbEndpoint a=null,b=null;for(int i=0;i<f.getEndpointCount();i++){UsbEndpoint e=f.getEndpoint(i);if(e.getType()==2){if(e.getDirection()==128)a=e;else b=e;}}
  if(a==null||b==null)throw new IOException("Missing bulk endpoints");in=a;out=b;iface=f;c=m.openDevice(d);if(c==null)throw new IOException("USB permission unavailable");
- if(!c.claimInterface(f,false)){c.close();throw new IOException("USB interface busy");}
+ if(!c.claimInterface(f,false)){
+ if(android.os.Build.VERSION.SDK_INT<24){c.close();throw new IOException("USB busy");} boolean mounted=false;
+ android.os.storage.StorageManager sm=(android.os.storage.StorageManager)context.getSystemService(android.content.Context.STORAGE_SERVICE);
+ if(sm==null){c.close();throw new IOException("Storage state unavailable");}
+ for(android.os.storage.StorageVolume v:sm.getStorageVolumes()){if(v.isRemovable()&&("mounted".equals(v.getState())||"mounted_ro".equals(v.getState())||"checking".equals(v.getState())))mounted=true;}
+ if(mounted||!c.claimInterface(f,true)){c.close();throw new IOException("USB masih dikuasai sistem; lepaskan penyimpanan terlebih dahulu");}
+ }
  try{byte[] cmd=new byte[10];cmd[0]=0x25;ByteBuffer cap=ByteBuffer.wrap(command(cmd,8));blocks=Integer.toUnsignedLong(cap.getInt())+1;size=cap.getInt();if(size<512||size>4096||(size&(size-1))!=0||blocks==4294967296L)throw new IOException("Unsupported capacity");}catch(IOException|RuntimeException e){close();throw e;}
  }
  long blockCount(){return blocks;} int blockSize(){return size;}
