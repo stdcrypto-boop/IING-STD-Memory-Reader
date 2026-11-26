@@ -3,7 +3,7 @@ import android.hardware.usb.*;
 import java.io.*;
 import java.nio.*;
 final class UsbDisk implements Closeable {
- private final UsbDeviceConnection c; private final UsbInterface iface; private final UsbEndpoint in,out; private int tag=1; private long blocks; private int size; private boolean failed, closed;
+ private final UsbDeviceConnection c; private final UsbInterface iface; private final UsbEndpoint in,out; private int tag=1; private long blocks; private int size; private boolean failed, closed; private int recoveryAttempts;
  UsbDisk(android.content.Context context,UsbManager m,UsbDevice d,UsbInterface f)throws IOException {
  if(f.getInterfaceClass()!=8||f.getInterfaceSubclass()!=6||f.getInterfaceProtocol()!=80)throw new IOException("Unsupported protocol");
  UsbEndpoint a=null,b=null;for(int i=0;i<f.getEndpointCount();i++){UsbEndpoint e=f.getEndpoint(i);if(e.getType()==2){if(e.getDirection()==128)a=e;else b=e;}}
@@ -25,7 +25,8 @@ final class UsbDisk implements Closeable {
  }
  // BOT reset recovery only on explicit request; no media write commands.
  synchronized boolean recoverTransport() throws IOException {
- if(closed||Thread.currentThread().isInterrupted())return false;
+ if(closed||!failed||Thread.currentThread().isInterrupted()||recoveryAttempts>=2)return false;
+ recoveryAttempts++;
  failed=true;
  if(c.controlTransfer(0x21,0xff,0,iface.getId(),null,0,3000)!=0)return false;
  if(c.controlTransfer(0x02,1,0,in.getAddress(),null,0,3000)!=0)return false;
