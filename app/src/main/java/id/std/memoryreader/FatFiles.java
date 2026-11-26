@@ -4,6 +4,16 @@ import java.util.*;
 import java.nio.charset.StandardCharsets;
 final class FatFiles {
  static FatFiles discover(UsbDisk d)throws IOException{byte[] m=d.read(0,1);java.util.LinkedHashMap<Long,Long> candidates=new java.util.LinkedHashMap<>();candidates.put(0L,d.blockCount());if(FatVolume.u16(m,510)==0xaa55)for(int i=0;i<4;i++){int p=446+i*16;long start=FatVolume.u32(m,p+8),len=FatVolume.u32(m,p+12);int type=m[p+4]&255;if(type!=0&&type!=0xee&&start>0&&len>0&&start<=d.blockCount()-len)candidates.put(start,len);}for(java.util.Map.Entry<Long,Long> e:candidates.entrySet()){check();long start=e.getKey(),len=e.getValue();byte[] boot=start==0?m:d.read(start,1);FatFiles found=probe(d,start,len,boot);if(found!=null)return found;}java.util.Set<Long> alreadyProbed=new java.util.HashSet<>(candidates.keySet());for(long offset:new long[]{63,128,2048,4096,8192})if(offset<d.blockCount()&&!candidates.containsKey(offset))candidates.put(offset,d.blockCount()-offset);for(java.util.Map.Entry<Long,Long> e:candidates.entrySet()){check();long start=e.getKey(),len=e.getValue();if(!alreadyProbed.contains(start)){FatFiles found=probe(d,start,len,d.read(start,1));if(found!=null)return found;}if(len>6){try{FatVolume v=new FatVolume(d,start,len,d.read(start+6,1));if(v.fat32)return new FatFiles(v);}catch(FatVolume.InvalidVolume ignored){}}if(len>12){byte[] boot=d.read(start+12,1);if(isEx(boot)){try{ExFatVolume v=new ExFatVolume(d,start,boot);if(v.total<=len)return new FatFiles(v);}catch(IOException ignored){}}}}throw new FatVolume.InvalidVolume("USB terhubung, tetapi struktur FAT/exFAT tidak dikenali. Jangan format.");}
+ static FatFiles discoverAt(UsbDisk d,long start,boolean backup)throws IOException{
+ if(start<0||start>=d.blockCount())throw new IOException("Sektor partisi di luar kapasitas");
+ long len=d.blockCount()-start;
+ if(!backup){FatFiles f=probe(d,start,len,d.read(start,1));if(f!=null)return f;}
+ else {
+ if(len>6){try{FatVolume v=new FatVolume(d,start,len,d.read(start+6,1));if(v.fat32)return new FatFiles(v);}catch(FatVolume.InvalidVolume ignored){}}
+ if(len>12){byte[] boot=d.read(start+12,1);if(isEx(boot)){ExFatVolume v=new ExFatVolume(d,start,boot);if(v.total<=len)return new FatFiles(v);}}
+ }
+ throw new FatVolume.InvalidVolume("Struktur folder tidak dikenali pada posisi pilihan");
+ }
  static boolean isEx(byte[] b){return new String(b,3,8,StandardCharsets.US_ASCII).equals("EXFAT   ");}
  static FatFiles probe(UsbDisk d,long start,long len,byte[] boot)throws IOException{if(isEx(boot)){try{ExFatVolume v=new ExFatVolume(d,start,boot);if(v.total<=len)return new FatFiles(v);}catch(IOException ignored){}return null;}try{return new FatFiles(new FatVolume(d,start,len,boot));}catch(FatVolume.InvalidVolume ignored){return null;}}
  final FatVolume v; final ExFatVolume ex; final Map<Long,ExFatVolume.Entry> dirs=new HashMap<>(); FatFiles(FatVolume v){this.v=v;ex=null;} FatFiles(ExFatVolume ex){this.ex=ex;v=null;} String type(){return ex!=null?"exFAT":v.fat32?"FAT32":v.fat12?"FAT12":"FAT16";}
