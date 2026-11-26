@@ -6,11 +6,11 @@ final class FatVolume {
  static long u32(byte[] b,int p){return (long)u16(b,p)|((long)u16(b,p+2)<<16);}
  static FatVolume discover(UsbDisk d)throws IOException{
  byte[] b=d.read(0,1);try{return new FatVolume(d,0,d.blockCount(),b);}catch(InvalidVolume e){}
- if(u16(b,510)!=0xaa55)throw new InvalidVolume("No valid boot sector or MBR");
- for(int i=0;i<4;i++){int p=446+i*16;int type=b[p+4]&255;if(type!=4&&type!=6&&type!=14&&type!=11&&type!=12)continue;
+ boolean mbr=u16(b,510)==0xaa55;
+ if(mbr)for(int i=0;i<4;i++){int p=446+i*16;int type=b[p+4]&255;if(type==0||type==0xee)continue;
  long start=u32(b,p+8),len=u32(b,p+12);if(start==0||len==0||start>d.blockCount()-len)continue;
- try{return new FatVolume(d,start,len,d.read(start,1));}catch(InvalidVolume e){}
- }throw new InvalidVolume("No supported FAT16/FAT32 volume");
+ try{return new FatVolume(d,start,len,d.read(start,1));}catch(InvalidVolume e){} if(len>6){try{FatVolume v=new FatVolume(d,start,len,d.read(start+6,1));if(v.fat32)return v;}catch(InvalidVolume e){}}
+ } for(long start:new long[]{0,63,128,2048,4096,8192}){long len=d.blockCount()-start;if(len<=6)continue;try{return new FatVolume(d,start,len,d.read(start,1));}catch(InvalidVolume e){}try{FatVolume v=new FatVolume(d,start,len,d.read(start+6,1));if(v.fat32)return v;}catch(InvalidVolume e){}}throw new InvalidVolume("FAT tidak ditemukan pada lokasi utama atau cadangan; exFAT belum didukung");
  }
  static final class InvalidVolume extends IOException{InvalidVolume(String s){super(s);}}
  FatVolume(UsbDisk d,long start,long limit,byte[] b)throws IOException{
