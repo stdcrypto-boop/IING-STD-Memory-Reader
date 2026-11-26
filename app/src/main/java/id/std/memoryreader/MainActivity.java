@@ -95,7 +95,7 @@ public class MainActivity extends Activity {
  ArrayList<FatFiles.Entry> entries=new ArrayList<>();files.list(cluster,e->{if(entries.size()>=5000)throw new IOException("Folder terlalu besar");entries.add(e);});
  for(FatFiles.Entry e:entries){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Cancelled");
  if(e.directory){if(e.cluster<2)throw new IOException("Folder tidak valid");copyTree(e.cluster,dest+"/"+safePart(e.name),seen,depth+1,count);}
- else{if(count[0]>=10000)throw new IOException("Batas 10000 file");copyToDownloads(e,dest);int n=++count[0];runOnUiThread(()->{if(!closed)status.setText("Menyalin folder: "+n+" file tersimpan");});}
+ else{if(count[0]>=10000)throw new IOException("Batas 10000 file");try{copyToDownloads(e,dest);}catch(IOException first){if(Thread.currentThread().isInterrupted()||disk==null||!disk.recoverTransport())throw first;copyToDownloads(e,dest);}int n=++count[0];runOnUiThread(()->{if(!closed)status.setText("Menyalin folder: "+n+" file tersimpan");});}
  }
  }
  android.net.Uri copyToDownloads(FatFiles.Entry e,String dest)throws IOException{ensureSpace(e.size);
