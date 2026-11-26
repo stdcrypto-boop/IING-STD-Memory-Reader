@@ -20,14 +20,14 @@ final class UsbDisk implements Closeable {
  long blockCount(){return blocks;} int blockSize(){return size;}
  synchronized byte[] read(long lba,int count)throws IOException{
  if(lba<0||count<1||count>Math.min(32,16384/size)||lba>blocks-count)throw new IOException("Read outside media");
- byte[] cmd=new byte[10];ByteBuffer b=ByteBuffer.wrap(cmd);b.put(0,(byte)0x28);b.putInt(2,(int)lba);b.putShort(7,(short)count);return command(cmd,count*size);
+ byte[] cmd=new byte[10];ByteBuffer b=ByteBuffer.wrap(cmd);b.put(0,(byte)0x28);b.putInt(2,(int)lba);b.putShort(7,(short)count);try{return command(cmd,count*size);}catch(IOException e){throw new IOException("Sektor "+lba+" ("+count+" blok): "+e.getMessage(),e); }
  }
  private byte[] command(byte[] cmd,int len)throws IOException{
  if(failed)throw new IOException("Transport stopped");try{
  if(cmd[0]!=0x25&&cmd[0]!=0x28)throw new IOException("Read-only command policy");
  int t=tag++;ByteBuffer cbw=ByteBuffer.allocate(31).order(ByteOrder.LITTLE_ENDIAN);cbw.putInt(0x43425355).putInt(t).putInt(len).put((byte)0x80).put((byte)0).put((byte)cmd.length).put(cmd);
  if(c.bulkTransfer(out,cbw.array(),31,3000)!=31)throw new IOException("CBW failed");
- byte[] data=new byte[len];if(c.bulkTransfer(in,data,len,5000)!=len)throw new IOException("Short data read");
+ byte[] data=new byte[len];int got=c.bulkTransfer(in,data,len,5000);if(got!=len)throw new IOException("Data USB tidak lengkap: "+got+"/"+len+" byte; pembacaan dihentikan");
  byte[] csw=new byte[13];if(c.bulkTransfer(in,csw,13,3000)!=13)throw new IOException("Missing CSW");
  ByteBuffer s=ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN);if(s.getInt()!=0x53425355||s.getInt()!=t||s.getInt()!=0||s.get()!=0)throw new IOException("SCSI read failed");return data;
  }catch(IOException|RuntimeException e){failed=true;throw e;}
