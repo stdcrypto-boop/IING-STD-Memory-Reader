@@ -4,7 +4,7 @@ final class JpegRecovery {
  interface Sink { void found(long offset,byte[] jpeg)throws IOException; void progress(long done,long total); }
  static void scan(UsbDisk disk,long first,long count,Sink sink)throws IOException{
  if(first<0||count<1||first>disk.blockCount()-count)throw new IOException("Invalid scan range");
- int bs=disk.blockSize(),batch=Math.min(32,16384/bs),prev=-1,prev2=-1; long start=0; ByteArrayOutputStream candidate=null;
+ int bs=disk.blockSize(),batch=1,prev=-1,prev2=-1; long start=0; ByteArrayOutputStream candidate=null;
  for(long i=0;i<count;){
  if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Cancelled");
  int n=(int)Math.min(batch,count-i);byte[] data=disk.read(first+i,n);
