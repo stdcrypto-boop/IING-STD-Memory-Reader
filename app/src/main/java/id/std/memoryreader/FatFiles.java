@@ -3,15 +3,15 @@ import java.io.*;
 import java.util.*;
 import java.nio.charset.StandardCharsets;
 final class FatFiles {
- final FatVolume v; FatFiles(FatVolume v){this.v=v;}
+ final FatVolume v; final ExFatVolume ex; final Map<Long,ExFatVolume.Entry> dirs=new HashMap<>(); FatFiles(FatVolume v){this.v=v;ex=null;} FatFiles(ExFatVolume ex){this.ex=ex;v=null;} String type(){return ex!=null?"exFAT":v.fat32?"FAT32":v.fat12?"FAT12":"FAT16";}
  static final class Entry {
- final String name; final long cluster,size; final boolean directory;
+ final String name; final long cluster,size; final boolean directory; ExFatVolume.Entry exEntry;
  Entry(String n,long c,long s,boolean d){name=n;cluster=c;size=s;directory=d;}
  }
  interface Visitor {void accept(Entry e)throws IOException;}
  private static void check()throws IOException{if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Cancelled");}
  void list(long cluster,Visitor visitor)throws IOException{
- Parser p=new Parser(visitor);
+ if(ex!=null){ExFatVolume.Entry dir=dirs.get(cluster);if(cluster!=0&&dir==null)throw new IOException("Folder unavailable");ex.list(dir,e->{Entry item=new Entry(e.name,e.cluster,e.size,e.directory);item.exEntry=e;if(e.directory){if(dirs.size()>=100000)throw new IOException("Directory cache limit");dirs.put(e.cluster,e);}visitor.accept(item);});return;} Parser p=new Parser(visitor);
  if(!v.fat32&&cluster==0){long sectors=((long)v.rootEntries*32+v.bps-1)/v.bps;for(long i=0;i<sectors;i++){check();if(p.parse(v.disk.read(v.rootSector+i,1)))return;}return;}
  long c=cluster==0?v.rootCluster:cluster;Set<Long> seen=new HashSet<>();
  while(c!=-1){check();if(seen.size()>=16384||!seen.add(c))throw new IOException("Directory chain limit or cycle");long base=v.sectorOf(c);for(int i=0;i<v.spc;i++){check();if(p.parse(v.disk.read(base+i,1)))return;}c=v.next(c);}
@@ -36,7 +36,7 @@ final class FatFiles {
  }
  }
  void copy(Entry e,OutputStream out)throws IOException{
- if(e.directory)throw new IOException("Not a file");long remaining=e.size,c=e.cluster;Set<Long> seen=new HashSet<>();
+ if(ex!=null){if(e.exEntry==null)throw new IOException("Missing exFAT entry");ex.copy(e.exEntry,out);return;} if(e.directory)throw new IOException("Not a file");long remaining=e.size,c=e.cluster;Set<Long> seen=new HashSet<>();
  while(remaining>0){check();if(seen.size()>=1048576||!seen.add(c))throw new IOException("File chain limit or cycle");long base=v.sectorOf(c);
  for(int i=0;i<v.spc&&remaining>0;i++){check();byte[] b=v.disk.read(base+i,1);int n=(int)Math.min(remaining,b.length);out.write(b,0,n);remaining-=n;}
  if(remaining>0){c=v.next(c);if(c==-1)throw new EOFException("Truncated file chain");}
