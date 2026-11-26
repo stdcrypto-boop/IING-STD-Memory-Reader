@@ -1,14 +1,7 @@
 # IING STD Memory Reader
 
-Status: planning; no APK built or hardware tested yet.
+Implemented in source: USB BOT read-only transport, FAT16/FAT32 discovery and browsing, long names, internal Downloads export, folder filters, photo preview, JPEG and sector-aligned 3GP/3G2/MP4/MPEG candidate recovery, cancellation, custom launcher icon.
 
-## V1 roadmap
-- Android USB host enumeration and explicit permission.
-- USB mass storage BOT, SCSI READ CAPACITY and READ(10), strict response validation; no write, format, repair or erase commands.
-- Read-only MBR and FAT16/FAT32 parsing with bounds and cycle checks.
-- Export recovered files only to a user-selected phone destination, never source USB.
-- Stop on disconnect or repeated I/O errors; no automatic retries on failing media.
-- Test with synthetic disk images and expendable cards before valuable media.
-- Build APK in GitHub Actions.
+Not verified: latest CI build, physical USB access, recovery integrity, speed, Android permission behavior. JPEG max 16 MiB; video max 256 MiB; fragmented files and corrupt metadata may not recover. Video candidates may be incomplete. No source write commands; OS mounting is outside app control.
 
-Physical failure, unsupported reader protocols and Android USB restrictions may prevent recovery. Android system mounting is outside app control; hardware write blocker recommended for irreplaceable data.
+Next: synthetic fixture tests, hardware test with expendable card, review UI and permission lifecycle, verify APK before release. Never test first on irreplaceable media.
