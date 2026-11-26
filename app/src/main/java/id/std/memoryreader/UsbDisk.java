@@ -3,7 +3,7 @@ import android.hardware.usb.*;
 import java.io.*;
 import java.nio.*;
 final class UsbDisk implements Closeable {
- private final UsbDeviceConnection c; private final UsbInterface iface; private final UsbEndpoint in,out; private int tag=1; private long blocks; private int size; private boolean failed;
+ private final UsbDeviceConnection c; private final UsbInterface iface; private final UsbEndpoint in,out; private int tag=1; private long blocks; private int size; private boolean failed, closed;
  UsbDisk(android.content.Context context,UsbManager m,UsbDevice d,UsbInterface f)throws IOException {
  if(f.getInterfaceClass()!=8||f.getInterfaceSubclass()!=6||f.getInterfaceProtocol()!=80)throw new IOException("Unsupported protocol");
  UsbEndpoint a=null,b=null;for(int i=0;i<f.getEndpointCount();i++){UsbEndpoint e=f.getEndpoint(i);if(e.getType()==2){if(e.getDirection()==128)a=e;else b=e;}}
@@ -27,10 +27,10 @@ final class UsbDisk implements Closeable {
  if(cmd[0]!=0x25&&cmd[0]!=0x28)throw new IOException("Read-only command policy");
  int t=tag++;ByteBuffer cbw=ByteBuffer.allocate(31).order(ByteOrder.LITTLE_ENDIAN);cbw.putInt(0x43425355).putInt(t).putInt(len).put((byte)0x80).put((byte)0).put((byte)cmd.length).put(cmd);
  if(c.bulkTransfer(out,cbw.array(),31,3000)!=31)throw new IOException("CBW failed");
- byte[] data=new byte[len];int got=c.bulkTransfer(in,data,len,5000);if(got!=len)throw new IOException("Data USB tidak lengkap: "+got+"/"+len+" byte; pembacaan dihentikan");
+ if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Dibatalkan"); byte[] data=new byte[len];int got=c.bulkTransfer(in,data,len,10000);if(got<0)throw new IOException("Transfer USB gagal atau timeout (10 detik); bukan bukti sektor rusak. Sesi dihentikan");if(got!=len)throw new IOException("Data USB tidak lengkap: "+got+"/"+len+" byte; sesi dihentikan");
  byte[] csw=new byte[13];if(c.bulkTransfer(in,csw,13,3000)!=13)throw new IOException("Missing CSW");
  ByteBuffer s=ByteBuffer.wrap(csw).order(ByteOrder.LITTLE_ENDIAN);if(s.getInt()!=0x53425355||s.getInt()!=t||s.getInt()!=0||s.get()!=0)throw new IOException("SCSI read failed");return data;
  }catch(IOException|RuntimeException e){failed=true;throw e;}
  }
- public synchronized void close(){failed=true;c.releaseInterface(iface);c.close();}
+ public synchronized void close(){if(closed)return;closed=true;failed=true;try{c.releaseInterface(iface);}finally{c.close();}}
 }
