@@ -12,6 +12,9 @@ final class FatFiles {
  for(int j=0;j<count;j++){int pos=j*d.blockSize();if((chunk[pos+510]&255)!=85||(chunk[pos+511]&255)!=170)continue;
  long start=offset+j;if(candidates.containsKey(start))continue;
  byte[] boot=Arrays.copyOfRange(chunk,pos,pos+d.blockSize());
+ // Require the recorded partition offset to agree with the candidate.
+ long recorded=isEx(boot)?ExFatVolume.u64(boot,64):FatVolume.u32(boot,28);
+ if(recorded!=start)continue;
  FatFiles found=probe(d,start,d.blockCount()-start,boot);if(found!=null)return found;
  }
  offset+=count-32;
