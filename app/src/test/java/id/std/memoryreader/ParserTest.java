@@ -19,4 +19,15 @@ final public class ParserTest {
  @Test(expected=IOException.class) public void rejectNameType()throws IOException{byte[] b=fixture();b[64]=0;ExFatVolume.parse(seal(b));}
  @Test(expected=IOException.class) public void rejectValidLengthOverSize()throws IOException{byte[] b=fixture();b[40]=1;ExFatVolume.parse(seal(b));}
  @Test public void directoryAndContiguousFlags()throws IOException{byte[] b=fixture();b[4]=16;b[33]=2;b[52]=2;ExFatVolume.Entry e=ExFatVolume.parse(seal(b));assertTrue(e.directory);assertTrue(e.contiguous);assertEquals(2L,e.cluster);}
+
+ @Test(expected=IOException.class) public void rejectSlash()throws IOException{byte[] b=fixture();b[66]=47;ExFatVolume.parse(seal(b));}
+ @Test(expected=IOException.class) public void rejectBackslash()throws IOException{byte[] b=fixture();b[66]=92;ExFatVolume.parse(seal(b));}
+ @Test(expected=IOException.class) public void rejectControl()throws IOException{byte[] b=fixture();b[66]=31;ExFatVolume.parse(seal(b));}
+ @Test(expected=IOException.class) public void rejectNullName()throws IOException{byte[] b=fixture();b[66]=0;ExFatVolume.parse(seal(b));}
+ @Test(expected=IOException.class) public void rejectOversizedSet()throws IOException{byte[] b=java.util.Arrays.copyOf(fixture(),640);b[1]=19;ExFatVolume.parse(seal(b));}
+ @Test(expected=IOException.class) public void rejectUnalignedSet()throws IOException{ExFatVolume.parse(seal(java.util.Arrays.copyOf(fixture(),97)));}
+ @Test(expected=IOException.class) public void rejectNegativeSize()throws IOException{byte[] b=fixture();b[63]=(byte)128;ExFatVolume.parse(seal(b));}
+ @Test(expected=IOException.class) public void rejectNegativeValidSize()throws IOException{byte[] b=fixture();b[47]=(byte)128;ExFatVolume.parse(seal(b));}
+ @Test public void unicodeName()throws IOException{byte[] b=fixture();b[66]=(byte)0xe9;assertEquals("é",ExFatVolume.parse(seal(b)).name);}
+ @Test public void validSizeBelowLength()throws IOException{byte[] b=fixture();b[40]=3;b[56]=5;ExFatVolume.Entry e=ExFatVolume.parse(seal(b));assertEquals(3L,e.validSize);assertEquals(5L,e.size);}
 }
