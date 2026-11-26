@@ -23,6 +23,16 @@ final class UsbDisk implements Closeable {
  if(size<512||lba<0||count<1||count>Math.min(32,16384/size)||lba>blocks-count)throw new IOException("Read outside media");
  byte[] cmd=new byte[10];ByteBuffer b=ByteBuffer.wrap(cmd);b.put(0,(byte)0x28);b.putInt(2,(int)lba);b.putShort(7,(short)count);try{return command(cmd,count*size);}catch(InterruptedIOException e){throw e;}catch(IOException e){throw new IOException("Sektor "+lba+" ("+count+" blok): "+e.getMessage(),e); }
  }
+ // BOT reset recovery only on explicit request; no media write commands.
+ synchronized boolean recoverTransport() throws IOException {
+ if(closed||Thread.currentThread().isInterrupted())return false;
+ failed=true;
+ if(c.controlTransfer(0x21,0xff,0,iface.getId(),null,0,3000)!=0)return false;
+ if(c.controlTransfer(0x02,1,0,in.getAddress(),null,0,3000)!=0)return false;
+ if(c.controlTransfer(0x02,1,0,out.getAddress(),null,0,3000)!=0)return false;
+ failed=false;
+ return true;
+ }
  private byte[] command(byte[] cmd,int len)throws IOException{
  if(closed||failed)throw new IOException("Sesi USB berhenti. Hubungkan kembali card reader.");if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Dibatalkan");try{
  if(cmd[0]!=0x25&&cmd[0]!=0x28)throw new IOException("Read-only command policy");
