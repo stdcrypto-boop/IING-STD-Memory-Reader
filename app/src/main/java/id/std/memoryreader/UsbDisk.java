@@ -19,7 +19,8 @@ final class UsbDisk implements Closeable {
  }
  long blockCount(){return blocks;} int blockSize(){return size;}
  synchronized byte[] read(long lba,int count)throws IOException{
- if(lba<0||count<1||count>Math.min(32,16384/size)||lba>blocks-count)throw new IOException("Read outside media");
+ if(closed||failed)throw new IOException("Sesi USB berhenti. Hubungkan kembali card reader.");
+ if(size<512||lba<0||count<1||count>Math.min(32,16384/size)||lba>blocks-count)throw new IOException("Read outside media");
  byte[] cmd=new byte[10];ByteBuffer b=ByteBuffer.wrap(cmd);b.put(0,(byte)0x28);b.putInt(2,(int)lba);b.putShort(7,(short)count);try{return command(cmd,count*size);}catch(InterruptedIOException e){throw e;}catch(IOException e){throw new IOException("Sektor "+lba+" ("+count+" blok): "+e.getMessage(),e); }
  }
  private byte[] command(byte[] cmd,int len)throws IOException{
