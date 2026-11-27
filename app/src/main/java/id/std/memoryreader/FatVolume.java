@@ -1,7 +1,7 @@
 package id.std.memoryreader;
 import java.io.*;
 final class FatVolume {
- final UsbDisk disk; final long start,total,fat,data,clusters,rootSector,rootCluster; final int spc,bps,rootEntries; final boolean fat32,fat12; private long cachedFat=-1; private byte[] fatCache;
+ final UsbDisk disk; final long start,total,fat,data,clusters,rootSector,rootCluster; final int spc,bps,rootEntries; final long fatSize; final int fatCopies,activeFat; final boolean mirrored; final boolean fat32,fat12; private long cachedFat=-1; private byte[] fatCache;
  static int u16(byte[] b,int p){return (b[p]&255)|((b[p+1]&255)<<8);}
  static long u32(byte[] b,int p){return (long)u16(b,p)|((long)u16(b,p+2)<<16);}
  static FatVolume discover(UsbDisk d)throws IOException{
@@ -23,10 +23,11 @@ final class FatVolume {
  if(clusters<1||clusters>=0x0ffffff5L||fat32!=(f==0)|| (fat32?rootEntries!=0:rootEntries==0))throw new InvalidVolume("Unsupported FAT type");
  if((fat12?fs*bps*2/3:fs*bps/(fat32?4:2))<clusters+2)throw new InvalidVolume("FAT too small");
  int flags=fat32?u16(b,40):0;int active=(flags&128)!=0?flags&15:0;if(active>=copies)throw new InvalidVolume("Invalid active FAT");
- fat=start+reserved+active*fs;rootSector=start+reserved+copies*fs;data=start+overhead;rootCluster=fat32?u32(b,44):0;
+ fatSize=fs;fatCopies=copies;activeFat=active;mirrored=(flags&128)==0;fat=start+reserved+active*fs;rootSector=start+reserved+copies*fs;data=start+overhead;rootCluster=fat32?u32(b,44):0;
  if(fat32&&(rootCluster<2||rootCluster>=clusters+2))throw new InvalidVolume("Invalid root cluster");
  }
  long sectorOf(long c)throws IOException{if(c<2||c>=clusters+2)throw new InvalidVolume("Cluster outside volume");return data+(c-2)*spc;}
- int fatByte(long off)throws IOException{long sector=fat+off/bps;if(cachedFat!=sector){fatCache=disk.read(sector,1);cachedFat=sector;}return fatCache[(int)(off%bps)]&255;}
- long next(long c)throws IOException{sectorOf(c);long off=fat12?c+c/2:c*(fat32?4:2);long n=fatByte(off)|(fatByte(off+1)<<8);if(fat12)n=(c%2==0?n:n>>4)&4095;else if(fat32)n=(n|((long)fatByte(off+2)<<16)|((long)fatByte(off+3)<<24))&0x0fffffffL;if(n>=(fat12?0xff8:fat32?0x0ffffff8L:0xfff8L))return -1;if(n>=(fat12?0xff0:fat32?0x0ffffff0L:0xfff0L))throw new InvalidVolume("Reserved or bad cluster");sectorOf(n);return n;}
+ int fatByte(long off,int copy)throws IOException{long sector=fat+(copy-activeFat)*fatSize+off/bps;if(cachedFat!=sector){fatCache=disk.read(sector,1);cachedFat=sector;}return fatCache[(int)(off%bps)]&255;}
+ long next(long c)throws IOException{return next(c,activeFat);}
+ long next(long c,int copy)throws IOException{sectorOf(c);long off=fat12?c+c/2:c*(fat32?4:2);long n=fatByte(off,copy)|(fatByte(off+1,copy)<<8);if(fat12)n=(c%2==0?n:n>>4)&4095;else if(fat32)n=(n|((long)fatByte(off+2,copy)<<16)|((long)fatByte(off+3,copy)<<24))&0x0fffffffL;if(n>=(fat12?0xff8:fat32?0x0ffffff8L:0xfff8L))return -1;if(n>=(fat12?0xff0:fat32?0x0ffffff0L:0xfff0L))throw new InvalidVolume("Reserved or bad cluster");sectorOf(n);return n;}
 }
