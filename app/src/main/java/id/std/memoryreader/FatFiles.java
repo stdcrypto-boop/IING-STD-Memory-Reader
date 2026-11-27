@@ -65,10 +65,16 @@ final class FatFiles {
  }
  }
  void copy(Entry e,OutputStream out)throws IOException{
- if(ex!=null){if(e.exEntry==null)throw new IOException("Missing exFAT entry");ex.copy(e.exEntry,out);return;} if(e.directory)throw new IOException("Not a file");long remaining=e.size,c=e.cluster;Set<Long> seen=new HashSet<>();
+ if(ex!=null){if(e.exEntry==null)throw new IOException("Missing exFAT entry");ex.copy(e.exEntry,out);return;} if(e.directory)throw new IOException("Not a file");int copy=v.activeFat;
+ if(v.mirrored&&v.fatCopies==2&&e.size>0){try{validateChain(e,copy);}catch(EOFException primary){int alternate=1-copy;validateChain(e,alternate);copy=alternate;}}
+ long remaining=e.size,c=e.cluster;Set<Long> seen=new HashSet<>();
  while(remaining>0){check();if(seen.size()>=1048576||!seen.add(c))throw new IOException("File chain limit or cycle");long base=v.sectorOf(c);
  for(int i=0;i<v.spc&&remaining>0;i++){check();byte[] b=v.disk.read(base+i,1);int n=(int)Math.min(remaining,b.length);out.write(b,0,n);remaining-=n;}
- if(remaining>0){c=v.next(c);if(c==-1)throw new EOFException("Truncated file chain");}
+ if(remaining>0){c=v.next(c,copy);if(c==-1)throw new EOFException("Truncated file chain");}
  }
+ }
+ void validateChain(Entry e,int copy)throws IOException{
+ long remaining=e.size,c=e.cluster,clusterBytes=(long)v.bps*v.spc;Set<Long> seen=new HashSet<>();
+ while(remaining>0){check();v.sectorOf(c);if(seen.size()>=1048576||!seen.add(c))throw new IOException("File chain limit or cycle");remaining-=Math.min(remaining,clusterBytes);if(remaining>0){c=v.next(c,copy);if(c==-1)throw new EOFException("Truncated file chain");}}
  }
 }
