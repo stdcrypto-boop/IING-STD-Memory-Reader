@@ -20,12 +20,42 @@ public class MainActivity extends Activity {
  @Override protected void onActivityResult(int request,int result,Intent data){
  super.onActivityResult(request,result,data);
  if(request!=71||result!=RESULT_OK||data==null||data.getData()==null)return;
- android.net.Uri tree=data.getData();new AlertDialog.Builder(this).setTitle("Salin folder normal").setMessage("Salin semua file dan subfolder yang dipilih ke Download?").setNegativeButton("Batal",null).setPositiveButton("Salin",(d,w)->task(()->{
- if(Build.VERSION.SDK_INT<29)throw new IOException("Membutuhkan Android 10+");
- int[] count={0};normalCopy(tree,android.provider.DocumentsContract.getTreeDocumentId(tree),"Download/IING STD Memory Reader/Normal-"+System.currentTimeMillis(),0,count);
- runOnUiThread(()->{if(!closed)status.setText("Selesai: "+count[0]+" file tersalin melalui Android");});
- })).show();
+ android.net.Uri tree=data.getData();normalBrowse(tree,android.provider.DocumentsContract.getTreeDocumentId(tree),null);
  }
+ static class NormalEntry{String id,name,mime;long size,date;boolean directory(){return "vnd.android.document/directory".equals(mime);}}
+ void normalBrowse(android.net.Uri tree,String id,Runnable parent){
+ if(busy||closed)return;
+ ArrayList<NormalEntry> entries=new ArrayList<>();
+ try(android.database.Cursor c=getContentResolver().query(android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree,id),new String[]{"document_id","_display_name","mime_type","_size","last_modified"},null,null,null)){
+ if(c==null)throw new IOException("Folder tidak terbaca");
+ while(c.moveToNext()&&entries.size()<5000){NormalEntry e=new NormalEntry();e.id=c.getString(0);e.name=c.getString(1);e.mime=c.getString(2);e.size=c.isNull(3)?-1:c.getLong(3);e.date=c.getLong(4);entries.add(e);}
+ }catch(Exception ex){status.setText("Gagal membuka folder: "+ex.getMessage());return;}
+ entries.sort((a,b)->a.directory()!=b.directory()?(a.directory()?-1:1):Long.compare(b.date,a.date));
+ LinearLayout panel=new LinearLayout(this);panel.setOrientation(1);
+ ListView list=new ListView(this);panel.addView(list,new LinearLayout.LayoutParams(-1,0,1));
+ Button all=new Button(this);all.setText("Salin semua isi folder");panel.addView(all);
+ Button selected=new Button(this);selected.setText("Simpan file terpilih");panel.addView(selected);
+ Set<String> checked=new HashSet<>();
+ java.util.concurrent.ExecutorService thumbs=java.util.concurrent.Executors.newSingleThreadExecutor();
+ android.util.LruCache<String,android.graphics.Bitmap> cache=new android.util.LruCache<>(32);
+ AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Galeri memori • "+entries.size()+" item").setView(panel).setNegativeButton("Tutup",null).setNeutralButton("Kembali",(d,w)->{if(parent!=null)parent.run();}).create();
+ list.setAdapter(new BaseAdapter(){
+ public int getCount(){return entries.size();}public Object getItem(int p){return entries.get(p);}public long getItemId(int p){return p;}
+ public View getView(int p,View old,android.view.ViewGroup group){
+ NormalEntry e=entries.get(p);LinearLayout row=new LinearLayout(MainActivity.this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(8,8,8,8);
+ ImageView image=new ImageView(MainActivity.this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);row.addView(image,new LinearLayout.LayoutParams(160,110));image.setImageResource(e.directory()?android.R.drawable.ic_menu_agenda:android.R.drawable.ic_menu_gallery);
+ TextView name=new TextView(MainActivity.this);name.setText(e.name+(e.directory()?"":(" • "+(e.size<0?"?":formatSize(e.size)))));name.setPadding(12,0,8,0);row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+ CheckBox box=new CheckBox(MainActivity.this);box.setVisibility(e.directory()?View.GONE:View.VISIBLE);box.setChecked(checked.contains(e.id));box.setOnCheckedChangeListener((v,on)->{if(on)checked.add(e.id);else checked.remove(e.id);});row.addView(box);
+ android.net.Uri uri=android.provider.DocumentsContract.buildDocumentUriUsingTree(tree,e.id);
+ if(!e.directory()&&Build.VERSION.SDK_INT>=29&&e.mime!=null&&(e.mime.startsWith("image/")||e.mime.startsWith("video/"))){android.graphics.Bitmap hit=cache.get(e.id);if(hit!=null)image.setImageBitmap(hit);else if(!thumbs.isShutdown())thumbs.submit(()->{try{android.graphics.Bitmap b=getContentResolver().loadThumbnail(uri,new android.util.Size(160,110),null);cache.put(e.id,b);runOnUiThread(()->{if(dialog.isShowing())image.setImageBitmap(b);});}catch(Exception ignored){}});}
+ View.OnClickListener click=v->{if(e.directory()){dialog.dismiss();normalBrowse(tree,e.id,()->normalBrowse(tree,id,parent));}else{Intent intent=new Intent(Intent.ACTION_VIEW);intent.setDataAndType(uri,e.mime==null?"application/octet-stream":e.mime);intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);try{startActivity(intent);}catch(Exception ex){android.widget.Toast.makeText(MainActivity.this,"Format tidak didukung pemutar HP",0).show();}}};name.setOnClickListener(click);image.setOnClickListener(click);return row;
+ }});
+ dialog.setOnDismissListener(d->thumbs.shutdownNow());
+ all.setOnClickListener(v->{dialog.dismiss();task(()->{if(Build.VERSION.SDK_INT<29)throw new IOException("Membutuhkan Android 10+");int[] count={0};normalCopy(tree,id,"Download/IING STD Memory Reader/Normal-"+System.currentTimeMillis(),0,count);runOnUiThread(()->{if(!closed)status.setText("Selesai: "+count[0]+" file tersalin");});});});
+ selected.setOnClickListener(v->{if(checked.isEmpty())return;dialog.dismiss();task(()->{if(Build.VERSION.SDK_INT<29)throw new IOException("Membutuhkan Android 10+");String dest="Download/IING STD Memory Reader/Normal-"+System.currentTimeMillis();int count=0;for(NormalEntry e:entries){if(!checked.contains(e.id))continue;normalSave(tree,e.id,safePart(e.name),e.mime,e.size,dest);count++;}final int n=count;runOnUiThread(()->{if(!closed)status.setText("Selesai: "+n+" file terpilih tersimpan");});});});
+ dialog.show();dialog.getWindow().setLayout(-1,-1);
+ }
+
  void normalCopy(android.net.Uri tree,String id,String dest,int depth,int[] count)throws IOException{
  if(depth>32)throw new IOException("Batas kedalaman folder");
  android.net.Uri children=android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
@@ -37,12 +67,15 @@ public class MainActivity extends Activity {
  String child=cur.getString(0),name=safePart(cur.getString(1)),mime=cur.getString(2);
  if("vnd.android.document/directory".equals(mime)){normalCopy(tree,child,dest+"/"+name,depth+1,count);continue;}
  if(count[0]>=10000)throw new IOException("Batas 10000 file");
- if(!cur.isNull(3))ensureSpace(cur.getLong(3));
+ normalSave(tree,child,name,mime,cur.isNull(3)?-1:cur.getLong(3),dest);
+ int n=++count[0];runOnUiThread(()->{if(!closed)status.setText("Mode normal: "+n+" file tersimpan");});
+ }}
+ }
+ void normalSave(android.net.Uri tree,String child,String name,String mime,long size,String dest)throws IOException{
+ if(size>=0)ensureSpace(size);
  android.content.ContentValues cv=new android.content.ContentValues();cv.put("_display_name",name);cv.put("mime_type",mime==null?"application/octet-stream":mime);cv.put("relative_path",dest+"/");cv.put("is_pending",1);
  android.net.Uri target=getContentResolver().insert(android.provider.MediaStore.Downloads.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY),cv);if(target==null)throw new IOException("Tujuan tidak tersedia");
  boolean ok=false;try{try(InputStream in=getContentResolver().openInputStream(android.provider.DocumentsContract.buildDocumentUriUsingTree(tree,child));OutputStream out=getContentResolver().openOutputStream(target)){if(in==null||out==null)throw new IOException("File tidak dapat dibuka");byte[] buf=new byte[65536];int n;while((n=in.read(buf))!=-1){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Dibatalkan");out.write(buf,0,n);}}cv.clear();cv.put("is_pending",0);if(getContentResolver().update(target,cv,null,null)!=1)throw new IOException("Gagal menyimpan");ok=true;}finally{if(!ok)getContentResolver().delete(target,null,null);}
- int n=++count[0];runOnUiThread(()->{if(!closed)status.setText("Mode normal: "+n+" file tersimpan");});
- }}
  }
  void recoveredGallery(){
  if(busy)return;
@@ -92,7 +125,7 @@ public class MainActivity extends Activity {
  return "Gagal: "+message;
  }
  interface Work{void run()throws Exception;}
- void task(Work work){if(busy||closed)return;busy=true;recover.setEnabled(false);cancel.setEnabled(true);search.setEnabled(false);category.setEnabled(false);scan.setEnabled(false);back.setEnabled(false);rows.setEnabled(false);for(int i=0;i<rows.getChildCount();i++)rows.getChildAt(i).setEnabled(false);progress.setIndeterminate(true);progress.setVisibility(View.VISIBLE);worker=new Thread(()->{try{work.run();}catch(Exception e){if(disk!=null){disk.close();disk=null;}files=null;runOnUiThread(()->{if(!closed){current.clear();rows.removeAllViews();history.clear();folder=0;status.setText(readFailure(e));}});}finally{if((closed||device==null)&&disk!=null){disk.close();disk=null;files=null;}runOnUiThread(()->{if(closed)return;if(device==null){current.clear();history.clear();folder=0;rows.removeAllViews();status.setText("Card reader terlepas. Hubungkan kembali.");}progress.setIndeterminate(true);busy=false;worker=null;recover.setEnabled(true);cancel.setEnabled(false);search.setEnabled(true);category.setEnabled(true);scan.setEnabled(true);back.setEnabled(!history.isEmpty());for(int i=0;i<rows.getChildCount();i++)rows.getChildAt(i).setEnabled(true);progress.setVisibility(View.GONE);});}});worker.start();}
+ void task(Work work){if(busy||closed)return;busy=true;recover.setEnabled(false);cancel.setEnabled(true);search.setEnabled(false);category.setEnabled(false);scan.setEnabled(false);back.setEnabled(false);rows.setEnabled(false);for(int i=0;i<rows.getChildCount();i++)rows.getChildAt(i).setEnabled(false);progress.setIndeterminate(true);progress.setVisibility(View.VISIBLE);worker=new Thread(()->{try{work.run();}catch(Exception e){if(disk!=null){disk.close();disk=null;}files=null;runOnUiThread(()->{if(!closed){current.clear();rows.removeAllViews();history.clear();folder=0;status.setText(readFailure(e));}});}finally{if((closed||device==null)&&disk!=null){disk.close();disk=null;files=null;}runOnUiThread(()->{if(closed)return;if(device==null&&disk!=null){current.clear();history.clear();folder=0;rows.removeAllViews();status.setText("Card reader terlepas. Hubungkan kembali.");}progress.setIndeterminate(true);busy=false;worker=null;recover.setEnabled(true);cancel.setEnabled(false);search.setEnabled(true);category.setEnabled(true);scan.setEnabled(true);back.setEnabled(!history.isEmpty());for(int i=0;i<rows.getChildCount();i++)rows.getChildAt(i).setEnabled(true);progress.setVisibility(View.GONE);});}});worker.start();}
  void choosePartition(){
  if(busy||device==null||iface==null||!manager.hasPermission(device)){status.setText("Hubungkan card reader dahulu");return;}
  EditText input=new EditText(this);input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);input.setText("0");
