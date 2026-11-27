@@ -30,6 +30,7 @@ public class MainActivity extends Activity {
  if(c==null)throw new IOException("Folder tidak terbaca");
  while(c.moveToNext()&&entries.size()<5000){NormalEntry e=new NormalEntry();e.id=c.getString(0);e.name=c.getString(1);e.mime=c.getString(2);e.size=c.isNull(3)?-1:c.getLong(3);e.date=c.getLong(4);entries.add(e);}
  }catch(Exception ex){status.setText("Gagal membuka folder: "+ex.getMessage());return;}
+ if(entries.isEmpty()){new AlertDialog.Builder(this).setTitle("Folder tidak terbaca atau kosong").setMessage("Android tidak menemukan file di folder ini. Jika drive meminta format, jangan format. Gunakan Recovery atau reader lain.").setPositiveButton("OK",null).show();return;}
  entries.sort((a,b)->a.directory()!=b.directory()?(a.directory()?-1:1):Long.compare(b.date,a.date));
  LinearLayout panel=new LinearLayout(this);panel.setOrientation(1);
  ListView list=new ListView(this);panel.addView(list,new LinearLayout.LayoutParams(-1,0,1));
@@ -66,7 +67,7 @@ public class MainActivity extends Activity {
  if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Dibatalkan");
  String child=cur.getString(0),name=safePart(cur.getString(1)),mime=cur.getString(2);
  if("vnd.android.document/directory".equals(mime)){normalCopy(tree,child,dest+"/"+name,depth+1,count);continue;}
- if(count[0]>=10000)throw new IOException("Batas 10000 file");
+ if(count[0]+(count.length>1?count[1]:0)>=10000)throw new IOException("Batas 10000 file");
  normalSave(tree,child,name,mime,cur.isNull(3)?-1:cur.getLong(3),dest);
  int n=++count[0];runOnUiThread(()->{if(!closed)status.setText("Mode normal: "+n+" file tersimpan");});
  }}
@@ -150,7 +151,7 @@ public class MainActivity extends Activity {
  new AlertDialog.Builder(this).setTitle(root.name).setMessage("Salin folder dan subfolder ke Download? File asli tidak diubah. File yang sudah berhasil disalin tetap tersimpan jika proses berhenti.").setNegativeButton("Batal",null).setPositiveButton("Salin",(d,w)->task(()->{
  String dest="Download/IING STD Memory Reader/Folder-"+System.currentTimeMillis()+"/"+safePart(root.name);
  int[] count={0,0};copyTree(root.cluster,dest,new HashSet<Long>(),0,count);
- runOnUiThread(()->{if(!closed)status.setText("Selesai: "+count[0]+" file tersalin. Folder kosong tidak dibuat.");});
+ runOnUiThread(()->{if(!closed)status.setText("Selesai: "+count[0]+" file tersalin | gagal: "+count[1]+". Folder kosong tidak dibuat.");});
  })).show();
  }
  String safePart(String name){String n=name.replaceAll("[^\\p{L}\\p{N}._ -]","_").trim();if(n.isEmpty()||n.equals(".")||n.equals(".."))n="recovered";return n.length()>100?n.substring(0,100):n;}
@@ -160,7 +161,7 @@ public class MainActivity extends Activity {
  ArrayList<FatFiles.Entry> entries=new ArrayList<>();files.list(cluster,e->{if(entries.size()>=5000)throw new IOException("Folder terlalu besar");entries.add(e);});
  for(FatFiles.Entry e:entries){if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Cancelled");
  if(e.directory){if(e.cluster<2)throw new IOException("Folder tidak valid");copyTree(e.cluster,dest+"/"+safePart(e.name),seen,depth+1,count);}
- else{if(count[0]>=10000)throw new IOException("Batas 10000 file");try{try{copyToDownloads(e,dest);}catch(EOFException truncated){throw truncated;}catch(IOException first){if(Thread.currentThread().isInterrupted()||disk==null||!disk.recoverTransport())throw first;copyToDownloads(e,dest);}}catch(EOFException truncated){if(!"Truncated file chain".equals(truncated.getMessage()))throw truncated;try(FileOutputStream report=openFileOutput("failed-files.txt",MODE_APPEND)){report.write((dest+"/"+e.name+" : "+truncated.getMessage()+"\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));}if(count.length>1)count[1]++;continue;}int n=++count[0];runOnUiThread(()->{if(!closed)status.setText("Menyalin folder: "+n+" file tersimpan");});}
+ else{if(count[0]>=10000)throw new IOException("Batas 10000 file");try{try{copyToDownloads(e,dest);}catch(EOFException truncated){throw truncated;}catch(IOException first){if(Thread.currentThread().isInterrupted()||disk==null||!disk.recoverTransport())throw first;copyToDownloads(e,dest);}}catch(EOFException truncated){if(!"Truncated file chain".equals(truncated.getMessage())&&!"Truncated file".equals(truncated.getMessage()))throw truncated;try(FileOutputStream report=openFileOutput("failed-files.txt",MODE_APPEND)){report.write((dest+"/"+e.name+" : "+truncated.getMessage()+"\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));}if(count.length>1)count[1]++;continue;}int n=++count[0];runOnUiThread(()->{if(!closed)status.setText("Menyalin folder: "+n+" file tersimpan");});}
  }
  }
  android.net.Uri copyToDownloads(FatFiles.Entry e,String dest)throws IOException{ensureSpace(e.size);
